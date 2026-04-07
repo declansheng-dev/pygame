@@ -1,9 +1,221 @@
-# Keep GitHub Actions up to date with GitHub's Dependabot...
-# https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot
-# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file#package-ecosystem
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: monthly
+import pygame
+import random
+import json
+import os
+
+pygame.init()
+
+# ---------- WINDOW ----------
+WIDTH, HEIGHT = 1000, 650
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("🎰 TRUE INSANE CASINO")
+
+clock = pygame.time.Clock()
+
+# ---------- COLORS ----------
+WHITE = (255,255,255)
+GREEN = (20,120,40)
+GOLD = (212,175,55)
+RED = (200,50,50)
+
+font = pygame.font.SysFont("Arial", 24)
+big = pygame.font.SysFont("Arial", 42)
+
+# ---------- SAVE ----------
+SAVE_FILE = "save.json"
+
+def load():
+    if os.path.exists(SAVE_FILE):
+        return json.load(open(SAVE_FILE))
+    return {"money":1000,"xp":0,"level":1,"games":0}
+
+def save():
+    json.dump(data, open(SAVE_FILE,"w"))
+
+data = load()
+
+# ---------- UTIL ----------
+def draw(txt,f,x,y,c=WHITE):
+    screen.blit(f.render(txt,True,c),(x,y))
+
+def button(txt,x,y,w,h):
+    r = pygame.Rect(x,y,w,h)
+    pygame.draw.rect(screen,GOLD,r,3)
+    draw(txt,font,x+10,y+10)
+    return r
+
+def add_xp(n):
+    data["xp"] += n
+    if data["xp"] >= data["level"]*120:
+        data["xp"] = 0
+        data["level"] += 1
+
+# ---------- SLOT SYSTEM ----------
+class SlotMachine:
+    def __init__(self):
+        self.symbols = ["🍒","🍋","⭐","💎","7"]
+        self.reels = [0,0,0]
+        self.spinning = False
+        self.speed = [0,0,0]
+
+    def spin(self):
+        if data["money"] < 100: return
+        data["money"] -= 100
+        self.spinning = True
+        self.speed = [random.randint(20,40) for _ in range(3)]
+
+    def update(self):
+        if self.spinning:
+            done = True
+            for i in range(3):
+                if self.speed[i] > 0:
+                    self.reels[i] = (self.reels[i]+1)%len(self.symbols)
+                    self.speed[i] -= 1
+                    done = False
+            if done:
+                self.spinning = False
+                self.reward()
+
+    def reward(self):
+        r = [self.symbols[i] for i in self.reels]
+        if len(set(r)) == 1:
+            data["money"] += 800; add_xp(30)
+        elif len(set(r)) == 2:
+            data["money"] += 200
+        else:
+            pass
+
+    def draw(self):
+        for i in range(3):
+            draw(self.symbols[self.reels[i]], big, 450+i*80, 200)
+
+slots = SlotMachine()
+
+# ---------- BLACKJACK ----------
+class Blackjack:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.player = [self.card(), self.card()]
+        self.dealer = [self.card(), self.card()]
+        self.active = True
+
+    def card(self):
+        return random.randint(1,11)
+
+    def value(self,hand):
+        total = sum(hand)
+        if 11 in hand and total>21:
+            total -= 10
+        return total
+
+    def hit(self):
+        self.player.append(self.card())
+        if self.value(self.player)>21:
+            data["money"] -= 100
+            self.active=False
+
+    def stand(self):
+        while self.value(self.dealer)<17:
+            self.dealer.append(self.card())
+        p,d=self.value(self.player),self.value(self.dealer)
+        if d>21 or p>d:
+            data["money"] += 150; add_xp(20)
+        elif p<d:
+            data["money"] -= 100
+        self.active=False
+
+    def draw(self):
+        draw(f"You: {self.value(self.player)}",big,400,300)
+        draw(f"Dealer: {self.value(self.dealer)}",big,400,350)
+
+bj = Blackjack()
+
+# ---------- ROULETTE ----------
+class Roulette:
+    def spin(self):
+        if data["money"]<100: return None
+        data["money"]-=100
+        num=random.randint(0,36)
+        return num
+
+roulette = Roulette()
+
+# ---------- GAME STATE ----------
+state = "menu"
+msg = ""
+
+# ---------- LOOP ----------
+run=True
+while run:
+    screen.fill(GREEN)
+
+    # HUD
+    draw(f"💰 {data['money']}",font,20,20)
+    draw(f"⭐ LVL {data['level']}",font,20,50)
+    draw(msg,font,20,80)
+
+    slots.update()
+
+    # ---------- MENU ----------
+    if state=="menu":
+        b1=button("🎲 Dice",50,150,200,50)
+        b2=button("🎰 Slots",50,220,200,50)
+        b3=button("🃏 Blackjack",50,290,200,50)
+        b4=button("🎡 Roulette",50,360,200,50)
+        b5=button("💾 Save",50,430,200,50)
+
+    # ---------- BLACKJACK ----------
+    if state=="bj":
+        bj.draw()
+        hit_btn=button("Hit",400,450,120,50)
+        stand_btn=button("Stand",550,450,120,50)
+
+    # draw slots always
+    slots.draw()
+
+    for e in pygame.event.get():
+        if e.type==pygame.QUIT:
+            save()
+            run=False
+
+        if e.type==pygame.MOUSEBUTTONDOWN:
+            m=pygame.mouse.get_pos()
+
+            if state=="menu":
+                if b1.collidepoint(m):
+                    p,b=random.randint(1,6),random.randint(1,6)
+                    if p>b: data["money"]+=100; msg="Win"
+                    elif p<b: data["money"]-=100; msg="Lose"
+                    else: msg="Tie"
+
+                if b2.collidepoint(m):
+                    slots.spin()
+
+                if b3.collidepoint(m):
+                    bj.reset()
+                    state="bj"
+
+                if b4.collidepoint(m):
+                    n=roulette.spin()
+                    if n is not None:
+                        if n%2==0:
+                            data["money"]+=200; msg=f"{n} WIN"
+                        else:
+                            msg=f"{n} LOSE"
+
+                if b5.collidepoint(m):
+                    save(); msg="Saved!"
+
+            elif state=="bj":
+                if hit_btn.collidepoint(m):
+                    bj.hit()
+                if stand_btn.collidepoint(m):
+                    bj.stand()
+                    state="menu"
+
+    pygame.display.update()
+    clock.tick(60)
+
+pygame.quit()
